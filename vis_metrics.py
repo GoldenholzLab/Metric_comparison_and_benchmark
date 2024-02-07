@@ -1,13 +1,11 @@
 #%%
-import os
 import numpy as np
-from joblib import Parallel, delayed
 import pickle
 # visualization
 import matplotlib.pyplot as plt
 from matplotlib import cm
-import seaborn as sns
-from model_lib import *
+from sklearn.metrics import roc_curve, precision_recall_curve, auc
+from sklearn.calibration import calibration_curve
 
 #%% calculate metrics visualization function
 def cal_metrics2plot(y_true_list, y_score_list, is_permute_truth=True, nb_boost=100):
@@ -92,118 +90,26 @@ def cal_metrics2plot(y_true_list, y_score_list, is_permute_truth=True, nb_boost=
     return (plt_brier_list,plt_aucroc_list,plt_aucpr_list),\
            (permute_brier,permute_aucroc,permute_aucpr,permute_p0,permute_p1),\
            (y_true_list, y_score_list), (pr_curve,permute_pr)
+
+def moving_average(a, n=100, ax=None):
+    if ax is None:
+        ret = np.cumsum(a, dtype=float)
+        ret[n:] = ret[n:] - ret[:-n]
+        return ret[n - 1:] / n
+    else:
+        ret = np.cumsum(a, dtype=float, axis=ax)
+        ret[:,n:] = ret[:,n:] - ret[:,:-n]
+        return ret[:,n - 1:] / n
     
-#%% Calculate ST data
-loadpath = './parameter/ST_data/'
-savepath = './figure/ST_data/val_data2/'
-if not os.path.isdir(savepath):
-    os.mkdir(savepath)
-model_name = 'MLP_w_trainedST_val2'
-winlen = 90
-
-with open(os.path.join(loadpath,f'vis_result_{model_name}.p'),'rb') as f:
-    vis_data = pickle.load(f)
-with open(os.path.join(loadpath,f'test_result_{model_name}.p'),'rb') as f:
-    test_data = pickle.load(f)
-
-diaries = test_data['diaries']
-val_idx = np.array(test_data['val_idx'])
-train_idx = np.array(test_data['train_idx'])
-y_true_list = [x[winlen:] for i,x in enumerate(diaries) if i in np.concatenate([val_idx,train_idx])]
-y_score_list = [moving_average(x,n=winlen)[:-1] for i,x in enumerate(diaries) if i in np.concatenate([val_idx,train_idx])]
-
-(plt_brier_list,plt_aucroc_list,plt_aucpr_list),\
-(permute_brier,permute_aucroc,permute_aucpr,permute_p0,permute_p1),\
-(y_true_list, y_score_list),(pr_curve,permute_pr)= cal_metrics2plot(y_true_list,y_score_list)
-
-with open(os.path.join(savepath,'plt_st_data.p'),'wb') as f:
-    data = {
-        'plt_brier_list':plt_brier_list,
-        'plt_aucroc_list':plt_aucroc_list,
-        'plt_aucpr_list':plt_aucpr_list,
-        'permute_brier':permute_brier,
-        'permute_aucroc':permute_aucroc,
-        'permute_aucpr':permute_aucpr,
-        'permute_p0':permute_p0,
-        'permute_p1':permute_p1,
-        'y_true_list':y_true_list,
-        'y_score_list':y_score_list,
-        'pr_curve':pr_curve,
-        'permute_pr':permute_pr
-    }
-    pickle.dump(data,f)
-
-#%% Load ST data
-loadpath = './parameter/ST_data/'
-savepath = './figure/ST_data/val_data2/'
-if not os.path.isdir(savepath):
-    os.mkdir(savepath)
-model_name = 'MLP_w_trainedST_val2'
-winlen = 90
-
-with open(os.path.join(loadpath,f'vis_result_{model_name}.p'),'rb') as f:
-    vis_data = pickle.load(f)
-with open(os.path.join(loadpath,f'test_result_{model_name}.p'),'rb') as f:
-    test_data = pickle.load(f)
-
-diaries = test_data['diaries']
-val_idx = np.array(test_data['val_idx'])
-train_idx = np.array(test_data['train_idx'])
-y_true_list = [x[winlen:] for i,x in enumerate(diaries) if i in np.concatenate([val_idx,train_idx])]
-y_score_list = [moving_average(x,n=winlen)[:-1] for i,x in enumerate(diaries) if i in np.concatenate([val_idx,train_idx])]
-
-with open(os.path.join(savepath,'plt_st_data.p'),'rb') as f:
+#%% Load simulated dataset
+with open('simulated_dataset.p','rb') as f:
     data = pickle.load(f)
-    plt_brier_list=data['plt_brier_list']
-    plt_aucroc_list=data['plt_aucroc_list']
-    plt_aucpr_list=data['plt_aucpr_list']
-    permute_brier=data['permute_brier']
-    permute_aucroc=data['permute_aucroc']
-    permute_aucpr=data['permute_aucpr']
-    permute_p0=data['permute_p0']
-    permute_p1=data['permute_p1']
-    y_true_list=data['y_true_list']
-    y_score_list=data['y_score_list'] 
-
-#%% Generate Toy model
-nb_day = 10000
-nb_boost = 100
-winlen = 90
-test_range = np.arange(0,31)
-
-# booststrapping
-y_score_list = []
-y_true_list = []
-
-for sz_i in test_range:
-    off_period = 30-sz_i
-    y_true = np.tile(np.concatenate([np.ones(sz_i),np.zeros(off_period)]),100)
-    y_true_list.append(y_true[winlen:])
-
-    # RMR
-    y_rmr = np.zeros(len(y_true)-winlen)
-    for w_i in np.arange(winlen, len(y_true)):
-        y_rmr[w_i-winlen] = np.mean(y_true[(w_i-winlen):w_i])
-    y_score_list.append(y_rmr)
+    y_true_list = data['y_true_list']
+    y_score_list = data['y_score_list']
         
 (plt_brier_list,plt_aucroc_list,plt_aucpr_list),\
 (permute_brier,permute_aucroc,permute_aucpr,permute_p0,permute_p1),\
 (y_true_list, y_score_list),(pr_curve,permute_pr) = cal_metrics2plot(y_true_list,y_score_list)
-
-#%% Load Empatica 
-with open(os.path.join(loadpath,'Empatica_plt_st_data.p'),'rb') as f:
-    data = pickle.load(f)
-    plt_brier_list=data['plt_brier_list']
-    plt_aucroc_list=data['plt_aucroc_list']
-    plt_aucpr_list=data['plt_aucpr_list']
-    permute_brier=data['permute_brier']
-    permute_aucroc=data['permute_aucroc']
-    permute_aucpr=data['permute_aucpr']
-    permute_p0=data['permute_p0']
-    permute_p1=data['permute_p1']
-    y_true_list=data['y_true_list']
-    y_score_list=data['y_score_list']
-
 
 #%% visualization
 is_one_fig = True
@@ -356,37 +262,7 @@ for ax_i in range(4):
 # ax[3].set_ylabel('AUC PR',fontsize=fontsize)
 plt.tight_layout()
 # plt.show()
-savepath='C:/Users/chiyu/OneDrive/Desktop/BILH/Writing/sz effect/figure/'
-savename='empatica.png'
+savepath='./'
+savename='sim_results.png'
 plt.savefig(f'{savepath}{savename}', bbox_inches='tight', dpi=300)
 plt.close(fig)
-
-#%% PR Curve
-with open(os.path.join(savepath,'plt_st_data.p'),'rb') as f:
-    data = pickle.load(f)
-    pr_curve_st = data['pr_curve']
-    permute_pr_st = data['permute_pr']
-thres_freq=9
-est_mSF = np.array([np.mean(x)*30 for x in y_true_list])
-sort_idx = np.argsort(est_mSF.reshape(-1))
-plt_mSF = est_mSF[sort_idx]
-freq_max = len(plt_mSF)
-bins = np.arange(0.5,thres_freq+1,1)
-inds = np.digitize(plt_mSF,bins=bins).reshape(-1)
-bins = bins[:-1]
-target_sf = 2
-plt_pr = [x for i,(_,x) in enumerate(sorted(zip(sort_idx,pr_curve))) if inds[i]==target_sf]
-plt_permute_pr = [x for i,(_,x) in enumerate(sorted(zip(sort_idx,permute_pr))) if inds[i]==target_sf]
-
-#%%
-fig,ax = plt.subplots(1,2, figsize=(10,6))
-for x, y in zip(plt_pr,plt_permute_pr):
-    if len(x)>0:
-        ax[0].plot(x[0],x[1],'k-',alpha=0.1)
-        ax[1].plot(y[0],y[1],'k-',alpha=0.1)
-ax[0].set_ylabel('Precision')
-ax[0].set_xlabel('Recall')
-ax[1].set_xlabel('Recall')
-ax[0].set_title('MA')
-ax[1].set_title('Permuted truth')
-plt.show()
