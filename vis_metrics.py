@@ -100,6 +100,40 @@ def moving_average(a, n=100, ax=None):
         ret = np.cumsum(a, dtype=float, axis=ax)
         ret[:,n:] = ret[:,n:] - ret[:,:-n]
         return ret[:,n - 1:] / n
+
+def pick_y_by_idx(data, plt_idx):
+    """
+    Pick y by subject index. Return y_list in form of a list of subjects. Return y_true_list, y_model_list, ma_list
+    Input:
+        data: test_result_{model_name}.p
+        plt_idx: subject index to extract.
+    Output:
+        y_true_list: ground truth. (list)
+        y_model_list: model score. (list)
+        ma_list: moving average. (list)
+    """
+    DAY_IN_A_MONTH = 30
+    winlen = 90
+    y_true = data['y_true']
+    y_model = data['model']
+    diaries = data['diaries']
+    est_mSF = [np.mean(x>0)*DAY_IN_A_MONTH for i,x in enumerate(diaries) if i in plt_idx]
+    ma_list = [moving_average(x>0,n=winlen)[:-1] for i,x in enumerate(diaries) if i in plt_idx]
+    subj_idx = data['subj_idx']
+    subj_idx = [-1 if x not in plt_idx else x for x in subj_idx]
+    y_array = [y_true, y_model]
+    y_array = np.vstack(y_array)
+    y_true_list = []
+    y_model_list = []
+    # loop through subjects
+    for p_i in np.unique(subj_idx):
+        if p_i!=-1:
+            subj_mask = subj_idx==p_i
+            y_slice = y_array[:,subj_mask]
+            y_true_list.append(y_slice[0,:])
+            y_model_list.append(y_slice[1,:])
+    
+    return y_true_list, y_model_list, ma_list, est_mSF
     
 #%% Load simulated dataset
 with open('simulated_dataset.p','rb') as f:
@@ -117,7 +151,7 @@ fontsize = 25
 linewidth=3
 marker_size_base=100
 # set maximum frequency for calculating the metrics
-thres_freq=9
+thres_freq=30
 est_mSF = np.array([np.mean(x)*30 for x in y_true_list])
 sort_idx = np.argsort(est_mSF.reshape(-1))
 plt_mSF = est_mSF[sort_idx]
@@ -264,5 +298,37 @@ plt.tight_layout()
 # plt.show()
 savepath='./'
 savename='sim_results.png'
+plt.savefig(f'{savepath}{savename}', bbox_inches='tight', dpi=300)
+plt.close(fig)
+
+#%% Generate Precision-recall curve example
+# load ST dataset (NOT AVAILABLE FOR PUBLIC)
+with open('st_data_example.p','rb') as f:
+    st_data = pickle.load(f)
+y_true_list, y_model_list, ma_list, est_mSF = pick_y_by_idx(st_data, st_data['val_idx'])
+_,_,_,(all_st_pr_curve,_) = cal_metrics2plot(y_true_list,ma_list)
+est_mSF = np.array(est_mSF)
+sort_idx = np.argsort(est_mSF)
+plt_mSF = est_mSF[sort_idx]
+bins = np.arange(0.5,thres_freq+1,1)
+inds = np.digitize(plt_mSF,bins=bins).reshape(-1)
+bins = bins[:-1]
+
+#%% visualize PR curve
+sz_i = 2
+sim_pr_curve = pr_curve[sz_i]
+st_pr_curve = [x for x,y in zip(all_st_pr_curve,inds[np.argsort(sort_idx)]) if y==sz_i]
+fig, ax = plt.subplots(1,2,figsize=(16,8),sharey=True,dpi=300)
+ax[0].plot(sim_pr_curve[0],sim_pr_curve[1],color='k')
+for c_i in range(len(st_pr_curve)):
+    ax[1].plot(st_pr_curve[c_i][0],st_pr_curve[c_i][1],color='k',alpha=0.3)
+for ax_i in range(2):
+    ax[ax_i].grid()
+    ax[ax_i].set_ylabel('Precision',fontsize=15)
+    ax[ax_i].set_xlabel('Recall',fontsize=15)
+ax[0].set_title('Simulated dataset',fontsize=20)
+ax[1].set_title('Seizure Tracker',fontsize=20)
+savepath='./'
+savename='pr_curve_example.png'
 plt.savefig(f'{savepath}{savename}', bbox_inches='tight', dpi=300)
 plt.close(fig)
